@@ -1,0 +1,1 @@
+Python 3.7;Pytorch 1.4.0;Numpy 1.16.2;NetworkX 2.4; scikit-learn 0.22.2; dgl-cuda10.1 0.4.3

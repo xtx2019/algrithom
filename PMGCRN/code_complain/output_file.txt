@@ -1,0 +1,96 @@
+
+# Lnet.load_state_dict(torch.load('/home/lxq/projects/DGL/examples/pytorch/lightgcn/lightgcn/lightgcn_model.pth'))
+# Lnet.eval()
+# Lnet.cuda()
+# feature = Lnet(g)
+# print(feature)
+# print(feature.shape)
+
+
+class RGCN(nn.Module):
+    def __init__(self,
+                 g,
+                 in_feats,
+                 n_hidden,
+                 n_classes,
+                 n_layers,
+                 activation,
+                 dropout):
+        super(RGCN, self).__init__()
+        self.g = g
+        self.layers = nn.ModuleList()
+        # input layer
+        self.layers.append(RGCNLayer(in_feats, n_hidden, g.number_of_node_types(), g.number_of_edge_types(), activation=activation, dropout=dropout))
+        # hidden layers
+        for i in range(n_layers - 1):
+            self.layers.append(RGCNLayer(n_hidden, n_hidden, g.number_of_node_types(), g.number_of_edge_types(), activation=activation, dropout=dropout))
+        # output layer
+        self.layers.append(RGCNLayer(n_hidden, n_classes, g.number_of_node_types(), g.number_of_edge_types(), activation=None, dropout=dropout))
+
+    def forward(self, h, etypes):
+        for layer in self.layers:
+            h, _ = layer(self.g, h, etypes)
+        return h
+
+
+class RGCNLayer(nn.Module):
+    def __init__(self,
+                 in_feats,
+                 out_feats,
+                 num_nodes,
+                 num_rels,
+                 activation,
+                 dropout):
+        super(RGCNLayer, self).__init__()
+        self.in_feats = in_feats
+        self.out_feats = out_feats
+        self.num_nodes = num_nodes
+        self.num_rels = num_rels
+        self.activation = activation
+        self.dropout = dropout
+
+        self.weight = nn.Parameter(torch.Tensor(self.num_rels, self.in_feats, self.out_feats))
+        if self.activation is not None:
+            self.bias = nn.Parameter(torch.Tensor(self.num_rels, self.out_feats))
+        else:
+            self.bias = None
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.weight)
+        if self.bias is not None:
+            nn.init.zeros_(self.bias)
+
+    def forward(self, g, h, etypes):
+        # perform graph convolution
+        g.srcdata['h'] = h
+        g.apply_edges(fn.u_add_v('h', 'w', 'm'))
+        # sum over all neighbors
+        g.update_all(fn.sum('m', 'h'), fn.sum)
+        # get the result
+        h = g.dstdata['h']
+        # perform activation
+        if self.activation is not None:
+            h = self.activation(h)
+        # perform dropout
+        if self.dropout is not None:
+            h = self.dropout(h)
+        return h, None
+
+
+class GCN(nn.Module):
+    def __init__(self,
+                 g,
+                 in_feats,
+                 n_hidden,
+                 n_classes,
+                 n_layers,
+                 activation,
+                 dropout):
+        super(GCN, self).__init__()
+        self.layers = nn.ModuleList()
+        # input layer
+        self.layers.append(GCNLayer(in_feats, n_hidden, activation=activation, dropout=dropout))
+        # hidden layers
+        for i in range(n_layers - 1):
+            self.layers.append(GCNLayer(
